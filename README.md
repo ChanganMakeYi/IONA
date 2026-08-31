@@ -86,11 +86,6 @@ the encoder that `--pretrain yes` loads. That pretraining code and the trained e
 checkpoints are archived separately and are not part of this code-only repository. `--pretrain no`
 reproduces the full pipeline from random initialisation without any external checkpoint.
 
-## Attribution
-
-The geometry-only backbone (`model.py`, IPA blocks in `module.py`) builds on the
-Prompt-DDG / RDE line of work; the screened-Coulomb electrostatic stream, its self-supervised
-objective, and the matched control variants are this work's contribution.
 
 ## Requirements
 
