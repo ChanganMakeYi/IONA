@@ -1,0 +1,9 @@
+torch>=2.0
+numpy>=1.23
+pandas>=1.5
+scipy>=1.9
+biopython==1.81
+easydict
+tqdm
+PyYAML
+scikit-learn

@@ -1,0 +1,23 @@
+{
+  "iona_num_cvfolds": 3,
+  "iona_patch_size": 128,
+  "iona_node_feat_dim": 1024,
+  "iona_pair_feat_dim": 256,
+  "iona_num_layers": 8,
+  "iona_knn": 15,
+  "iona_cutoff": 15,
+  "iona_num_embeddings": 256,
+  "iona_loss_weight": 0.005,
+  "iona_commitment_cost": 0.25,
+  "iona_mask_ratio": 0.1,
+  "iona_pre_epoch": 30,
+  "iona_max_epoch": 30,
+  "iona_val_freq": 30,
+  "iona_lr": 0.0003,
+  "iona_weight_decay": 0.0,
+  "iona_batch_size": 32,
+  "iona_seed": 2025,
+  "iona_csv_path": "../data/vdjdb/vdjdb_smoke.csv",
+  "iona_pdb_dir": "../data/vdjdb/PDBs",
+  "iona_cache_dir": "../data/vdjdb/cache_smoke"
+}
