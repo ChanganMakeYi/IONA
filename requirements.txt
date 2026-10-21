@@ -1,10 +1,9 @@
-# LEA-C 运行依赖(推理/评测/微调核心;版本以本机验证过的为准,HPC 上可放宽)
 torch>=2.0
 numpy>=1.23
 pandas>=1.5
 scipy>=1.9
-biopython>=1.79      # 结构解析(common_utils)
+biopython==1.81
 easydict
 tqdm
-# 可选(仅 ESM 融合实验用,LEA-C 核心不需要):
-# fair-esm
+PyYAML
+scikit-learn

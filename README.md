@@ -1,99 +1,143 @@
-# Physical Inductive Biases for Transferable Protein Binding Prediction
+# IONA
 
-Reference implementation for the method described in *Physical Inductive Biases for
-Transferable Protein Binding Prediction*.
+IONA predicts mutation-induced changes in protein binding affinity using an invariant
+point-attention encoder and a signed screened-Coulomb attention channel. The reference
+configuration uses 1024-dimensional residue features, 256-dimensional pair features and
+eight encoder blocks.
 
-The model augments an invariant point-attention (IPA) encoder with a **screened-Coulomb
-electrostatic attention stream** and pretrains it to regress Poisson–Boltzmann interface
-potentials on a large corpus of protein–protein interfaces, without affinity labels. Every
-reported claim is made against a **size-matched, geometry-only ablation** trained on the same
-folds, from the same pretrained initialisation, with the same seed and step budget, so the two
-arms differ only in the presence of the electrostatic stream.
+## Project layout
 
-> **Scope.** This repository ships the **model and the training/evaluation trunk** only.
-> Public benchmark datasets, the electrostatic self-supervised pretraining code, the
-> Poisson–Boltzmann (APBS) target-generation pipeline, trained checkpoints, and the paper's
-> downstream analysis scripts are **not** part of this code-only release; they are distributed
-> separately (see **Data**, **Pretrained encoder**, and **Checkpoints**). Nothing here is
-> redistributed from third-party datasets.
-
-## Layout
-
-```
-code/                       shared model / data library
-  model.py                  geometry-only IPA ΔΔG network (the size-matched control)
-  module.py                 IPA blocks, encoders, shared layers
-  dataset.py, skempi.py     dataset construction and SKEMPI parsing
-  trainer.py, utils.py      training loop and helpers
-  common_utils/             protein parsing / transforms (required at runtime)
-  lea_experiment/
-    run_ablation.py         train + evaluate one architecture arm (main entry point)
-    lea_module_{c,d,g,r,x}.py   the electrostatic model and its matched control variants
-configs/                    model configurations (config_63M.json is the one used throughout)
+```text
+iona/
+  networks.py                 binding predictor and representation codebook
+  encoders.py                 residue, pair and geometric encoders
+  mutation_data.py            benchmark parsing and mutation datasets
+  batching.py                 padded batches and data managers
+  device_io.py                device transfer and cross-validation utilities
+  runtime.py                  metrics, configuration and runtime utilities
+  checkpoint_io.py            checkpoint key conversion
+  primitives/                 protein geometry and data transforms
+  experiments/
+    run_benchmarks.py          training and evaluation entry point
+    screened_coulomb.py       IONA screened-Coulomb model
+    attention_controls.py     distance-bias and gated controls
+    radial_controls.py        learned-radial and distance-only controls
+    charge_controls.py        permutation, sign and screening controls
+    solvation_control.py      additional solvation channel
+configs/                      IONA model configurations
+tests/                        namespace and numerical regression checks
 ```
 
-## Architectures
+Project-owned classes use the `IONA` prefix, and project-owned functions, variables,
+model attributes and configuration fields use `iona_`. Python protocols, PyTorch hooks,
+third-party APIs, amino-acid/atom symbols and cached benchmark field names retain their
+required interfaces. Python source files contain no comments or docstrings.
 
-`python code/lea_experiment/run_ablation.py --arch <name>` trains and evaluates one arm
-(3 folds, fixed step budget). All variants are matched in parameter count so that no difference
-between them is attributable to capacity.
+## Installation
 
-| `--arch` | electrostatic term | module | purpose |
-|---|---|---|---|
-| `base`  | none | `model.py` (`DDG_RDE_Network`) | size-matched geometry-only control |
-| `leac`  | `q_i q_j exp(-κr/10) / (ε r)` | `lea_module_c.py` | the electrostatic model |
-| `leac_gated` | screened Coulomb + learnable gate `g` | `lea_module_g.py` | quantifies that the stream is used (`sigmoid(g)`) |
-| `leag`  | distance-bucketed per-head global bias, **no charge** | `lea_module_g.py` | does *any* global pairwise bias suffice, or the Coulomb form specifically? |
-| `lear`  | `q_i q_j f(r)`, `f` learned | `lea_module_r.py` | is the *Coulomb shape* what matters? |
-| `leard` | `f(r)`, `f` learned, no scalars | `lea_module_r.py` | would any pairwise radial channel do? |
-| `leap`  | scalars permuted across residues | `lea_module_x.py` | does per-residue assignment matter? |
-| `leaa`  | `\|q_i q_j\| exp(-κr/10) / (ε r)` | `lea_module_x.py` | does charge sign matter? |
-| `leau`  | `q_i q_j / (ε r)` | `lea_module_x.py` | does screening matter? |
-
-## Usage
-
-Each run trains 3 folds at a fixed step budget and evaluates SKEMPI (three modes), ATLAS, and
-the HER2 set, appending one row to `results/ablation/summary.tsv`.
+Use Python 3.10 or later and install the dependencies:
 
 ```bash
-# from-scratch training — runs with no external checkpoint (electrostatic model vs. control)
-python code/lea_experiment/run_ablation.py --arch leac --pretrain no --tag leac
-python code/lea_experiment/run_ablation.py --arch base --pretrain no --tag geo
-
-# to reproduce the reported numbers, initialise from the pretrained electrostatic encoder:
-python code/lea_experiment/run_ablation.py --arch leac --pretrain yes \
-    --enc /path/to/es_enc_leac_50k_63M.ckpt --tag leac
+pip install -r requirements.txt
 ```
 
-`--pretrain yes` needs a pretrained encoder checkpoint: pass it with `--enc`, or place it at
-`checkpoints/es_enc_leac_50k_63M.ckpt` (see **Pretrained encoder**). Datasets are read from
-`data/` under the repo root; paths auto-resolve relative to that root, overridable with the
-`LEAC_ROOT` environment variable. Add `--device cpu` to run without a GPU. `config_63M.json` is
-the configuration used for the reported results.
+Choose a PyTorch build appropriate for your CPU or CUDA environment. The compatibility
+checks for this naming revision used Python 3.12, CPU PyTorch and BioPython 1.81.
 
-## Data
+## Model variants
 
-All benchmarks are public and are **not** redistributed here: SKEMPI v2, AB-Bind, ATLAS, the
-HER2/trastuzumab affinity-maturation set, the antibody escape panels, and the PPIRef interfaces
-used for pretraining. Place them under `data/<benchmark>/` (see the path construction near the
-top of `run_ablation.py`). Poisson–Boltzmann targets were generated with APBS and pdb2pqr
-(AMBER force field).
+| `--arch` | Predictor | Attention channel |
+|---|---|---|
+| `iona` | `IONAPredictor` | signed screened-Coulomb |
+| `iona_geometry` | `IONABindingPredictor` | geometric backbone |
+| `iona_gated` | `IONAGatedPredictor` | gated screened-Coulomb |
+| `iona_distance_bias` | `IONADistanceBiasPredictor` | learned distance buckets |
+| `iona_learned_radial` | `IONALearnedRadialPredictor` | charge product and learned radial profile |
+| `iona_distance_only` | `IONADistanceOnlyPredictor` | learned radial profile |
+| `iona_permuted_charge` | `IONAPermutedChargePredictor` | permuted residue scalars |
+| `iona_unsigned_charge` | `IONAUnsignedChargePredictor` | absolute scalar products |
+| `iona_unscreened` | `IONAUnscreenedPredictor` | unscreened inverse distance |
+| `iona_solvation` | `IONASolvationPredictor` | screened-Coulomb and solvation |
 
-## Pretrained encoder & checkpoints
+The screened-Coulomb channel adds a charge projection and two scalar parameters per
+block. The variants retain their existing architectures and numerical behavior.
 
-The electrostatic self-supervised pretraining (Poisson–Boltzmann interface regression) produces
-the encoder that `--pretrain yes` loads. That pretraining code and the trained encoder/fine-tuned
-checkpoints are archived separately and are not part of this code-only repository. `--pretrain no`
-reproduces the full pipeline from random initialisation without any external checkpoint.
+## Training and evaluation
 
+Run commands from the repository root:
 
-## Requirements
+```bash
+python -m iona.experiments.run_benchmarks --help
+python -m iona.experiments.run_benchmarks --arch iona --pretrain no --tag iona_random
+python -m iona.experiments.run_benchmarks --arch iona_geometry --pretrain no --tag iona_geometry_random
+python -m iona.experiments.run_benchmarks --arch iona --pretrain yes --enc /path/to/encoder.ckpt --tag iona_pretrained
+```
 
-See `requirements.txt`. Core stack: PyTorch ≥ 2.0, NumPy, pandas, SciPy, BioPython, easydict.
+The direct script entry point also works:
+
+```bash
+python iona/experiments/run_benchmarks.py --arch iona --pretrain no --tag iona_random
+```
+
+The default configuration is `configs/iona_63m.json`. Pass `--config iona_12m.json`
+or another filename under `configs/` to select a different configuration. Configuration
+field names now carry the `iona_` prefix. Use `--device cpu` for CPU execution.
+`IONA_ROOT` overrides the project data/configuration root; `IONA_CODE` identifies the
+source directory for the import bootstrap.
+
+Each run trains three folds and evaluates SKEMPI, ATLAS87 and HER2. The default budget
+is 40,000 steps per fold. Results are appended to `results/ablation/summary.tsv`, and
+checkpoints are saved under `results/ablation/<tag>/iona_fold<fold>_step<step>.ckpt`.
+
+## Data and pretrained models
+
+This repository contains the model and supervised training/evaluation code. Benchmark
+data, prepared caches, APBS target generation, electrostatic self-supervised pretraining,
+trained weights and downstream analysis scripts are supplied separately and are not
+included here. Training with `--pretrain no` starts the supervised model from random
+initialization; it still requires prepared benchmark data and does not run the
+electrostatic self-supervised stage.
+
+The default data locations are:
+
+```text
+data/SKEMPI_v2_cache/          entries.pkl and structures.pkl
+data/atlas87/                 atlas_ddg.csv, PDBs/, cache/
+data/her2/                    her2_ddg.csv, PDBs/, cache/
+```
+
+The default SKEMPI mode reads the prepared cache and uses the existing split seed
+3745754758. `--skempi uniair` reads `data/skempi_uniair/skempi_ddg.csv`, `PDBs/` and
+`cache/`, using explicit fold columns where available; `SKEMPI_UNIAIR_DIR` overrides
+that location. The default pretrained encoder path is
+`checkpoints/iona_encoder_50k_63m.ckpt`, or supply an existing file with `--enc`.
+
+## Existing checkpoints and data
+
+`load_state_dict` accepts both the previous model-attribute keys and the new IONA keys.
+Conversion preserves tensor values and validates the resulting state dictionary using
+the requested strictness. Newly saved weights use IONA keys. Cached dataset field names
+and benchmark CSV columns retain their existing formats.
+
+For continuation from an older run, rename its `ddg_fold<fold>_step<step>.ckpt` files to
+`iona_fold<fold>_step<step>.ckpt` before using `--warmstart_dir`. Optimizer parameter order
+and the numerical training logic are unchanged. Use a new output tag for the renamed
+entry point.
+
+## Validation
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The naming revision was also checked directly against commit `5d6e703`: all ten model
+variants produced identical initialized tensors, evaluation predictions, losses and
+parameter gradients on the same synthetic inputs. These checks validate the refactor;
+they do not replace full benchmark reproduction with the original data and weights.
 
 ## License
 
-MIT — see `LICENSE`.
+MIT; see `LICENSE`.
 
 ## Citation
 

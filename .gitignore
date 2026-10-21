@@ -1,15 +1,12 @@
-# byte-compiled / caches
 __pycache__/
 *.py[cod]
 *.egg-info/
 .ipynb_checkpoints/
 
-# editor backups
 *.bak_*
 *~
 .DS_Store
 
-# artifacts that are NOT part of this code-only repo
 *.ckpt
 *.pt
 *.pkl
